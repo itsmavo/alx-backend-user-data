@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+""" Definition of _hash_password function """
+import bcrypt
+from uuid import uuid4
+from sqlalchemy.orm.exc import NoResultFound
+from typing import ( TypeVar, Union)
+
+from db import DB
+from user import User
+
+
+U = TypeVar(User)
+
+
+def _hash_password(password: str) -> bytes:
+    """
+    Hashes a password string and returns in bytes form
+    Args:
+        password (str): password in string format
+    """
+    pwd = password.encode('utf-8')
+    return bcrypt.hashpw(pwd, bcrypt.gensalt())
+
+
+def _generate_uuid() -> str:
+   """
+   Generated uuid and return string representation
+   """
+   return str(uuid4())
+
+
+
+class Auth:
+    """Auth class to interact with the authentication database.
+    """
+
+    def __init__(self):
+        self._db = DB()
+    
+    def register_user(self, email: str, password: str) -> User:
+        """
+        Register a new user and return a user obj
+        Args:
+            email (str): new user's email address
+            password (str): new user's password
+        Return:
+            if no user with given email exists, return newly created user
+            else raise ValueError
+        """
+        try:
+            self._db.find_user_by(email=email)
+        except NoResultFound:
+            hashed = _hash_password(password)
+            user = self._db.add_user(email, hashed)
+            return user
+        raise ValueError(f"User {email} already exists")
+
+
+    def valid_login(self, email: str, password: str) -> bool:
+        """
+        Validate a user's login cred and return True or False
+        Args:
+            email (str):  user's email address
+            password (str): user's password
+        Return:
+            True if credentials are correct, else False
+
+        """
+        try:
+            user = self._db.find_user_by(email=email)
+        except NoResultFound:
+            return False
+
+        user_pwd = user.hashed_password
+        pwd = password.encode("utf-8")
+        return bcrypt.checkpw(pwd, user_pwd)
+
+    def create_session(self, email: str) -> Union[None, str]:
+        """
+        Create a session_id for existing user and update user's session_id attribute
+        Args:
+            email (str): user's email address
+        """
+        try:
+            user = self._db.find_user_by(email=email)
+        except NoResultFound:
+            return None
+        session_id = _generate_uuid()
+        self._db.update_user(user.id, session_id=session_id)
+        return session_id
+
+    def get_user_from_session_id(self, session_id: str) -> Union[None, U]:
+        """
+        Takes session_id and return related user if exists, else None
+        Args:
+            session_id (str): session_id for specific user
+        Return:
+            user obj if found, else None
+        """
+        if session_id is None:
+            return None
+
+        try:
+            user = self._db.find_user_by(session_id=session_id)
+        except NoResultFound:
+            return None
+
+        return user
+
+    def destroy_session(self, user_id: int) -> None:
+        """
+        Take user_id and destroy the user's session and update
+        session_id attr to None
+        Args:
+            user_id (int): user's id
+        Return:
+            None
+        """
+        try:
+            self._db.update_user(user_id, session_id=None)
+        except ValueError:
+            return None
+        return None
